@@ -1,0 +1,111 @@
+1. Project Overview and ArchitectureTo build a custom token launchpad inspired by Raydium's LaunchLab, you'll create a decentralized application (dApp) that integrates with Solana's mainnet. This will allow users to launch tokens using bonding curves (similar to Raydium's linear, exponential, or logarithmic models), bootstrap liquidity, and enable buying/selling until a fundraising threshold is met (e.g., 85 SOL default, after which liquidity migrates to a Raydium CPMM pool and the LP is burned). The UI will be minimalist: black background (#000000), white monospace font (e.g., 'Courier New' or 'Consolas' at 14px base size), mimicking a terminal interface with text-based elements like ASCII borders for forms and tables.High-Level Architecture:Frontend: React.js for the UI, handling user interactions, wallet connections, and real-time data display.
+Blockchain Layer: Client-side integration with Solana mainnet using @solana
+/web3.js for core operations and @raydium
+-io/raydium-sdk for LaunchLab-specific features (e.g., token minting, bonding curve interactions, pool creation).
+No Dedicated Backend: All logic runs client-side via JavaScript, with direct RPC calls to Solana mainnet (use a reliable endpoint like https://api.mainnet-beta.solana.com or a paid provider like Helius for better performance).
+Wallet: Exclusive support for Phantom via @solana
+/wallet-adapter.
+Data Fetching: Use Solana RPC methods and Raydium SDK to query bonding curve progress, token metrics (e.g., market cap, holders, volume), and transaction history.
+Security Note: Since this is mainnet-only, all testing should start on devnet. Use real SOL cautiously; implement safeguards like transaction simulations.
+
+Assumptions and Scope:Focus on core features: Token creation with bonding curves, buying/selling, progress monitoring, and automatic graduation to Raydium pool.
+Ignore advanced Raydium features like vesting, multi-quote tokens (stick to SOL), or referral systems unless specified.
+Total supply, curve type, and threshold will be configurable but simplified.
+Estimated Development Time: 2-4 weeks for a solo developer with Solana experience.
+
+2. PrerequisitesSkills Required:Intermediate JavaScript/TypeScript.
+React.js for frontend.
+Solana development basics (transactions, programs, SPL tokens).
+Familiarity with bonding curves: Price increases dynamically as supply is bought (e.g., linear: price = k * supply; exponential: price = k * supply^2).
+Tools and Environment:Node.js v18+ and npm/yarn.
+Git for version control.
+Solana CLI (install via sh -c "$(curl -sSfL https://release.solana.com/stable/install)").
+Phantom wallet extension for testing.
+IDE: VS Code with Solana extensions.
+RPC Provider: Free mainnet RPC for start; upgrade to Helius or QuickNode for production (API key needed).
+Libraries (install via npm):@solana/web3.js: Core Solana interactions.
+@raydium-io/raydium-sdk: For LaunchLab bonding curves, pool migration, and AMM integration.
+@solana/wallet-adapter-react: Wallet connection (configure for Phantom only).
+@solana/wallet-adapter-phantom: Phantom-specific adapter.
+react, react-dom, @types/react.
+bn.js for big numbers; decimal.js for precision calculations.
+tailwindcss or plain CSS for styling (keep it minimal).
+3. Project SetupInitialize the Project:Create a new React app: npx create-react-app my-launchpad --template typescript.
+Install dependencies: npm install @solana/web3.js @raydium-io/raydium-sdk @solana/wallet-adapter-react @solana/wallet-adapter-phantom bn.js decimal.js.
+Set up Solana connection: In src/App.tsx, import and configure Connection from @solana/web3.js with mainnet RPC.
+Configure Wallet Adapter:Wrap your app in WalletAdapterProvider from @solana/wallet-adapter-react.
+Limit to Phantom: Pass only the Phantom adapter in the wallets prop.
+Example code:typescript
+import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+
+const wallets = [new PhantomWalletAdapter()];
+
+// In App.tsx
+<ConnectionProvider endpoint="https://api.mainnet-beta.solana.com">
+  <WalletProvider wallets={wallets} autoConnect>
+    {/* Your components */}
+  </WalletProvider>
+</ConnectionProvider>
+Mainnet Configuration:Use Cluster.Mainnet in Raydium SDK init.
+Warn users: Display a modal on connect: "This dApp operates on Solana Mainnet. Transactions use real SOL."
+4. UI DevelopmentKeep it terminal-like: Black background, white text, no images/icons except ASCII art. Use flexbox for layout.Core Components:Header: Wallet connect button (text: "Connect Phantom"). Show connected address truncated (e.g., "Wallet: 123...abc").
+Launch Form: Text inputs for token name, symbol, description, total supply (default 1B), curve type (dropdown: linear/exponential/logarithmic), fundraising target (SOL, default 85).Style: Bordered with | - + ASCII for inputs.
+Token List: Table of active launches (fetched via SDK): Columns for name, progress (e.g., "45/85 SOL"), MC, age, buy/sell buttons.Use HTML <table> with monospace font; white text on black.
+Buy/Sell Interface: For a selected token, input SOL amount, simulate price via curve formula, confirm transaction.
+Progress Monitor: Real-time bar (text-based, e.g., "[=====     ] 50%") for bonding curve fill.
+Styling:Global CSS: body { background: #000; color: #fff; font-family: 'Courier New', monospace; font-size: 14px; }
+Inputs/Buttons: Black background, white borders/text; hover: invert colors.
+No animations; keep static for simplicity.
+State Management: Use React Context or Redux for wallet state, token list, and loading indicators.
+
+5. Blockchain Integration: Token LaunchUse Raydium SDK to interact with LaunchLab programs.Initialize SDK:import { Raydium, Liquidity } from '@raydium-io/raydium-sdk';
+Create instance: const raydium = await Raydium.load({ connection });
+Create Token with Bonding Curve:Generate mint keypair for new token.
+Use SDK's createLaunchpad or equivalent (from docs: similar to createMint.ts in examples).
+Parameters: Token metadata (name/symbol), supply, curve type (e.g., linear), target SOL.
+Build transaction: Mint token, initialize bonding curve account, set authority.
+Sign and send via wallet: wallet.signAndSendTransaction(tx).
+Example (adapted from GitHub examples like kukapay):typescript
+async function launchToken(params: { name: string, symbol: string, supply: BN, curveType: 'linear', target: BN }) {
+  const mint = Keypair.generate();
+  const tx = await raydium.launch.create({
+    mint,
+    metadata: { name: params.name, symbol: params.symbol },
+    totalSupply: params.supply,
+    bondingCurve: { type: params.curveType, params: { k: new BN(1) } }, // Adjust per curve
+    fundraisingTarget: params.target,
+  });
+  await wallet.sendTransaction(tx, connection);
+}
+Bonding Curve Mechanics:Price calculation: For linear: price = initialPrice + (slope * currentSupply).
+Fetch progress: Query bonding curve account via getAccount for filled SOL vs. target.
+6. Buy/Sell FunctionalityBuy Tokens:User inputs SOL amount.
+Compute tokens received via curve formula (use Decimal.js for precision).
+Build instruction: Transfer SOL to curve account, mint tokens to user.
+Use SDK's buy method: raydium.launch.buy({ bondingCurvePubkey, amountIn: solAmount });
+Sell Tokens:Similar: Input token amount, compute SOL out.
+Instruction: Burn tokens, transfer SOL back.
+SDK: raydium.launch.sell({ ... });
+Real-Time Updates:Use connection.onAccountChange to subscribe to bonding curve accounts for live progress.
+Poll every 5s for token metrics (holders: query token accounts; volume: parse recent txs via Helius if needed).
+Graduation Handling:Monitor threshold: When reached, SDK auto-migrates to CPMM pool (use Liquidity.makeCreatePoolInstruction).
+Burn LP: Post-migration, create burn tx for LP tokens.
+7. Testing and DebuggingLocal Testing: Use Solana Test Validator for initial setup, then devnet.
+Simulation: Always simulate txs: connection.simulateTransaction(tx).
+Tools: Solana Explorer for tx inspection; Raydium docs for error codes.
+Edge Cases: Handle insufficient funds, curve overflows, wallet disconnects.
+
+8. DeploymentFrontend Hosting: Build React app (npm run build), deploy to Vercel/Netlify. Use environment vars for RPC.
+Domain and SSL: Custom domain with HTTPS.
+Monitoring: Integrate Sentry for errors; use Helius webhooks for real-time events (e.g., new launches).
+Scalability: Rate-limit RPC calls; cache token data.
+
+9. Security and Best PracticesAudits: Audit smart contract interactions (even if using Raydium's audited programs).
+User Protections: Confirm dialogs for txs; display risks (e.g., "Bonding curves can lead to volatile prices").
+Compliance: No KYC; warn about potential rugs or impermanent loss post-graduation.
+Gas Optimization: Batch instructions in txs.
+Updates: Monitor Raydium SDK releases; Solana upgrades.
+
+This outline provides a blueprint. Start with wallet integration and a mock launch form. Refer to Raydium SDK docs for exact methods, as they may evolve. If you need code snippets for specific parts, provide more details!
+
